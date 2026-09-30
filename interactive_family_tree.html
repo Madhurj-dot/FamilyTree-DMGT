@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Family Tree Builder</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- HTML2Canvas for Exporting Image -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .canvas-bg {
+      background-size: 30px 30px;
+      background-image: 
+        radial-gradient(circle, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+    }
+
+    .light-mode .canvas-bg {
+      background-image: 
+        radial-gradient(circle, rgba(0, 0, 0, 0.12) 1px, transparent 1px);
+    }
+
+    /* Custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0,0,0,0.1);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(150,150,150,0.4);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(150,150,150,0.6);
+    }
+
+    /* Node hover transition */
+    .member-card {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .member-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.5);
+    }
+
+    /* SVG overlay smooth rendering */
+    #svg-connections {
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col antialiased selection:bg-indigo-500 selection:text-white dark">
+
+  <!-- Top Navigation & Control Bar -->
+  <header class="h-16 bg-slate-800/90 border-b border-slate-700/80 px-4 flex items-center justify-between z-30 backdrop-blur-md shrink-0 shadow-md">
+    <div class="flex items-center space-x-3">
+      <div class="p-2 bg-indigo-600 rounded-lg text-white shadow-lg shadow-indigo-500/30">
+        <i class="fa-solid fa-sitemap text-xl"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-lg leading-tight tracking-wide text-white flex items-center gap-2">
+          Family Tree Studio
+          <span class="text-xs bg-indigo-500/20 text-indigo-300 font-normal px-2 py-0.5 rounded-full border border-indigo-500/30">Jamgade Tree</span>
+        </h1>
+        <p class="text-xs text-slate-400">Interactive Generational Lineage Builder</p>
+      </div>
+    </div>
+
+    <!-- Action Toolbar -->
+    <div class="flex items-center space-x-2">
+      <button id="btn-reset-tree" title="Reset to Handwritten Jamgade Tree" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition flex items-center gap-1.5 border border-slate-600">
+        <i class="fa-solid fa-rotate-left text-amber-400"></i>
+        <span class="hidden sm:inline">Reset Jamgade Tree</span>
+      </button>
+
+      <div class="h-6 w-[1px] bg-slate-700 mx-1"></div>
+
+      <button id="btn-export-json" title="Export as JSON Data" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition flex items-center gap-1.5 border border-slate-600">
+        <i class="fa-solid fa-download text-emerald-400"></i>
+        <span class="hidden sm:inline">Export Data</span>
+      </button>
+
+      <label id="btn-import-json" title="Import JSON File" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition flex items-center gap-1.5 border border-slate-600 cursor-pointer">
+        <i class="fa-solid fa-upload text-blue-400"></i>
+        <span class="hidden sm:inline">Import</span>
+        <input type="file" id="file-input" accept=".json" class="hidden">
+      </label>
+
+      <button id="btn-export-image" title="Export Tree as Image" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20">
+        <i class="fa-solid fa-file-image"></i>
+        <span>Export PNG</span>
+      </button>
+
+      <button id="btn-toggle-theme" title="Toggle Light/Dark Theme" class="p-2 bg-slate-700 hover:bg-slate-600 text-amber-300 rounded-lg text-xs transition border border-slate-600 ml-2">
+        <i class="fa-solid fa-sun text-base" id="theme-icon"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Interactive Workspace -->
+  <main class="flex-1 relative overflow-hidden bg-slate-950 canvas-bg" id="canvas-container">
+    
+    <!-- Floating Canvas Controls -->
+    <div class="absolute bottom-6 right-6 z-20 flex flex-col bg-slate-800/90 border border-slate-700/80 rounded-xl shadow-2xl p-1.5 backdrop-blur-md gap-1">
+      <button id="btn-zoom-in" class="p-2.5 text-slate-300 hover:text-white hover:bg-slate-700/70 rounded-lg transition" title="Zoom In">
+        <i class="fa-solid fa-plus text-sm"></i>
+      </button>
+      <button id="btn-zoom-out" class="p-2.5 text-slate-300 hover:text-white hover:bg-slate-700/70 rounded-lg transition" title="Zoom Out">
+        <i class="fa-solid fa-minus text-sm"></i>
+      </button>
+      <button id="btn-reset-view" class="p-2.5 text-slate-300 hover:text-white hover:bg-slate-700/70 rounded-lg transition" title="Reset View / Center">
+        <i class="fa-solid fa-expand text-sm"></i>
+      </button>
+    </div>
+
+    <!-- Instructions / Quick Hint Banner -->
+    <div class="absolute top-4 left-4 z-20 bg-slate-800/80 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-300 backdrop-blur-md flex items-center gap-2 shadow-lg max-w-xs sm:max-w-md">
+      <i class="fa-solid fa-lightbulb text-amber-400 text-sm shrink-0"></i>
+      <span><strong>Tip:</strong> Drag canvas to pan. Click <strong>+</strong> action icons on cards to add generation nodes!</span>
+    </div>
+
+    <!-- Pan/Zoom Viewport Wrapper -->
+    <div id="tree-viewport" class="w-full h-full absolute inset-0 cursor-grab active:cursor-grabbing origin-top-left">
+      <!-- SVG Connector Lines Container -->
+      <svg id="svg-connections" class="absolute top-0 left-0 w-[5000px] h-[5000px] pointer-events-none z-0">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+          </marker>
+        </defs>
+      </svg>
+
+      <!-- Dynamic Tree Generation DOM Tree -->
+      <div id="tree-root-container" class="absolute p-24 min-w-[2000px] min-h-[2000px] flex flex-col items-center gap-16 z-10 pointer-events-none">
+        <!-- Generations will be dynamically rendered here -->
+      </div>
+    </div>
+  </main>
+
+  <!-- Edit Member Modal -->
+  <div id="member-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden transition-all transform scale-95 opacity-0 modal-container">
+      <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+        <h3 class="font-semibold text-lg text-white flex items-center gap-2" id="modal-title">
+          <i class="fa-solid fa-user-pen text-indigo-400"></i> Edit Family Member
+        </h3>
+        <button id="modal-close" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-700 transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <form id="member-form" class="p-5 space-y-4">
+        <input type="hidden" id="edit-node-id">
+        
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Full Name</label>
+          <input type="text" id="field-name" required placeholder="e.g. Tamhan Jamgade" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Relationship / Title</label>
+            <input type="text" id="field-role" placeholder="e.g. Great Grandfather" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Gender</label>
+            <select id="field-gender" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition">
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other / Unspecified</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Birth Year</label>
+            <input type="text" id="field-birth" placeholder="e.g. 1940" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Passed Year (Optional)</label>
+            <input type="text" id="field-death" placeholder="e.g. 2015" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Avatar / Photo URL (Optional)</label>
+          <input type="url" id="field-avatar" placeholder="https://..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition">
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Notes / Highlights</label>
+          <textarea id="field-notes" rows="2" placeholder="Add personal details or history..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition resize-none"></textarea>
+        </div>
+
+        <div class="pt-3 border-t border-slate-700 flex justify-between items-center">
+          <button type="button" id="btn-delete-member" class="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-medium transition flex items-center gap-1.5">
+            <i class="fa-solid fa-trash"></i> Delete
+          </button>
+
+          <div class="flex gap-2">
+            <button type="button" id="btn-cancel-modal" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-md transition">Save Member</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    /* Default Tree Data initialized from the requested image */
+    const INITIAL_JAMGADE_TREE = {
+      nodes: [
+        // Gen 0: Great Grandfather
+        {
+          id: 'node_1',
+          name: 'Tamhan Jamgade',
+          role: 'Great Grandfather',
+          gender: 'male',
+          birth: '',
+          death: '',
+          spouseId: null,
+          parentIds: [],
+          generation: 0
+        },
+        // Gen 1: Grandparents & Siblings
+        {
+          id: 'node_2',
+          name: 'Eknath Jamgade',
+          role: 'Grandfather',
+          gender: 'male',
+          spouseId: 'node_3',
+          parentIds: ['node_1'],
+          generation: 1
+        },
+        {
+          id: 'node_3',
+          name: 'Banabai Jamgade',
+          role: 'Grandmother',
+          gender: 'female',
+          spouseId: 'node_2',
+          parentIds: [],
+          generation: 1
+        },
+        {
+          id: 'node_vasant',
+          name: 'Vasant Jamgade',
+          role: 'Granduncle',
+          gender: 'male',
+          spouseId: null,
+          parentIds: ['node_1'],
+          generation: 1
+        },
+        // Gen 2: Parents & Relatives
+        {
+          id: 'node_4',
+          name: 'Manoj Jamgade',
+          role: 'Father',
+          gender: 'male',
+          spouseId: 'node_5',
+          parentIds: ['node_2', 'node_3'],
+          generation: 2
+        },
+        {
+          id: 'node_5',
+          name: 'Dhanu Jamgade',
+          role: 'Mother',
+          gender: 'female',
+          spouseId: 'node_4',
+          parentIds: [],
+          generation: 2
+        },
+        {
+          id: 'node_shobha',
+          name: 'Shobha Jamgade',
+          role: 'Aunt',
+          gender: 'female',
+          spouseId: null,
+          parentIds: ['node_2', 'node_3'],
+          generation: 2
+        },
+        // Gen 3: Children / You & Sister
+        {
+          id: 'node_6',
+          name: 'Madhur Jamgade',
+          role: 'You',
+          gender: 'male',
+          spouseId: null,
+          parentIds: ['node_4', 'node_5'],
+          generation: 3
+        },
+        {
+          id: 'node_7',
+          name: 'Anagha Jamgade',
+          role: 'Sister',
+          gender: 'female',
+          spouseId: null,
+          parentIds: ['node_4', 'node_5'],
+          generation: 3
+        }
+      ]
+    };
+
+    // Application State
+    // Updated key to v3 to ensure it ignores previous cache and loads the new image-based data
+    let treeData = loadTreeState();
+    let zoomLevel = 1;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+
+    // DOM Elements
+    const container = document.getElementById('canvas-container');
+    const viewport = document.getElementById('tree-viewport');
+    const rootContainer = document.getElementById('tree-root-container');
+    const svgConnections = document.getElementById('svg-connections');
+    const modal = document.getElementById('member-modal');
+    const modalContainer = modal.querySelector('.modal-container');
+
+    function loadTreeState() {
+      const saved = localStorage.getItem('jamgade_family_tree_v3');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch(e) {
+          console.error('Failed to parse saved state', e);
+        }
+      }
+      return JSON.parse(JSON.stringify(INITIAL_JAMGADE_TREE));
+    }
+
+    function saveTreeState() {
+      localStorage.setItem('jamgade_family_tree_v3', JSON.stringify(treeData));
+      renderTree();
+    }
+
+    function resetToJamgadeTree() {
+      if (confirm('Are you sure you want to reset to the original Jamgade Family Tree layout?')) {
+        treeData = JSON.parse(JSON.stringify(INITIAL_JAMGADE_TREE));
+        saveTreeState();
+        centerView();
+      }
+    }
+
+    function renderTree() {
+      rootContainer.innerHTML = '';
+
+      // Group nodes by generation
+      const genMap = {};
+      treeData.nodes.forEach(node => {
+        const gen = node.generation || 0;
+        if (!genMap[gen]) genMap[gen] = [];
+        genMap[gen].push(node);
+      });
+
+      const sortedGens = Object.keys(genMap).map(Number).sort((a,b) => a - b);
+
+      // Render each generation row
+      sortedGens.forEach(gen => {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'generation-row flex items-center justify-center gap-12 pointer-events-auto relative my-4';
+        rowEl.dataset.generation = gen;
+
+        const nodesInGen = genMap[gen];
+        
+        // Group married couples together side-by-side
+        const processedIds = new Set();
+
+        nodesInGen.forEach(node => {
+          if (processedIds.has(node.id)) return;
+
+          if (node.spouseId) {
+            const spouse = nodesInGen.find(n => n.id === node.spouseId);
+            if (spouse && !processedIds.has(spouse.id)) {
+              // Married Group Wrapper
+              const coupleWrapper = document.createElement('div');
+              coupleWrapper.className = 'couple-group flex items-center bg-slate-800/40 p-2.5 rounded-2xl border border-dashed border-indigo-500/30 gap-4 relative';
+              
+              // Heart badge for spouse relationship
+              const heartBadge = document.createElement('div');
+              heartBadge.className = 'absolute -top-3 left-1/2 transform -translate-x-1/2 bg-slate-800 text-pink-400 border border-slate-700 px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-1 shadow';
+              heartBadge.innerHTML = '<i class="fa-solid fa-heart text-[9px] text-pink-500"></i> Spouse';
+              coupleWrapper.appendChild(heartBadge);
+
+              coupleWrapper.appendChild(createMemberCard(node));
+              coupleWrapper.appendChild(createMemberCard(spouse));
+
+              rowEl.appendChild(coupleWrapper);
+              processedIds.add(node.id);
+              processedIds.add(spouse.id);
+              return;
+            }
+          }
+
+          rowEl.appendChild(createMemberCard(node));
+          processedIds.add(node.id);
+        });
+
+        rootContainer.appendChild(rowEl);
+      });
+
+      // Request animation frame to draw connector lines after layout calculate
+      requestAnimationFrame(() => {
+        drawConnectorLines();
+      });
+    }
+
+    function createMemberCard(node) {
+      const card = document.createElement('div');
+      card.id = `card-${node.id}`;
+      card.className = `member-card w-64 bg-slate-800/90 border rounded-xl p-3 shadow-lg relative flex flex-col justify-between ${
+        node.role === 'You' ? 'border-amber-500/80 ring-2 ring-amber-500/30' : 'border-slate-700'
+      }`;
+
+      // Gender tint avatar background
+      const isMale = node.gender === 'male';
+      const isFemale = node.gender === 'female';
+      const avatarBg = isMale ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' : 
+                       isFemale ? 'bg-pink-500/10 text-pink-400 border-pink-500/30' : 
+                       'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+
+      const avatarIcon = isMale ? 'fa-mars' : isFemale ? 'fa-venus' : 'fa-genderless';
+
+      card.innerHTML = `
+        <div class="flex items-start gap-3">
+          <!-- Avatar Icon/Image -->
+          <div class="w-11 h-11 rounded-lg border ${avatarBg} flex items-center justify-center shrink-0 overflow-hidden font-bold">
+            ${node.avatar 
+              ? `<img src="${node.avatar}" class="w-full h-full object-cover" onerror="this.remove()">` 
+              : `<i class="fa-solid ${avatarIcon} text-lg"></i>`
+            }
+          </div>
+
+          <!-- Member Details -->
+          <div class="flex-1 min-w-0">
+            <h4 class="text-sm font-semibold text-white truncate leading-snug">${node.name || 'Unnamed Member'}</h4>
+            <p class="text-xs text-indigo-400 font-medium truncate">${node.role || 'Family Member'}</p>
+            ${(node.birth || node.death) ? `<p class="text-[10px] text-slate-400 mt-0.5"><i class="fa-regular fa-calendar-days text-[9px]"></i> ${node.birth || '?'} - ${node.death || 'Present'}</p>` : ''}
+          </div>
+
+          <!-- Edit Button -->
+          <button onclick="openEditModal('${node.id}')" class="text-slate-400 hover:text-white p-1 hover:bg-slate-700 rounded transition" title="Edit Member">
+            <i class="fa-solid fa-pen-to-square text-xs"></i>
+          </button>
+        </div>
+
+        ${node.notes ? `<p class="text-[11px] text-slate-400 italic mt-2 line-clamp-2 bg-slate-900/50 p-1.5 rounded border border-slate-700/50">${node.notes}</p>` : ''}
+
+        <!-- Interactive Action Quick Buttons -->
+        <div class="mt-3 pt-2 border-t border-slate-700/60 grid grid-cols-3 gap-1">
+          <button onclick="addSibling('${node.id}')" class="px-1.5 py-1 bg-slate-700/60 hover:bg-indigo-600/30 hover:border-indigo-500 text-slate-300 hover:text-indigo-300 border border-slate-700 rounded text-[10px] font-medium transition flex items-center justify-center gap-1" title="Add Sibling">
+            <i class="fa-solid fa-user-plus text-[9px]"></i> +Sibling
+          </button>
+
+          <button onclick="addChild('${node.id}')" class="px-1.5 py-1 bg-slate-700/60 hover:bg-emerald-600/30 hover:border-emerald-500 text-slate-300 hover:text-emerald-300 border border-slate-700 rounded text-[10px] font-medium transition flex items-center justify-center gap-1" title="Add Child">
+            <i class="fa-solid fa-child text-[9px]"></i> +Child
+          </button>
+
+          ${!node.spouseId ? `
+            <button onclick="addSpouse('${node.id}')" class="px-1.5 py-1 bg-slate-700/60 hover:bg-pink-600/30 hover:border-pink-500 text-slate-300 hover:text-pink-300 border border-slate-700 rounded text-[10px] font-medium transition flex items-center justify-center gap-1" title="Add Spouse">
+              <i class="fa-solid fa-heart text-[9px]"></i> +Spouse
+            </button>
+          ` : `
+            <button onclick="addParent('${node.id}')" class="px-1.5 py-1 bg-slate-700/60 hover:bg-amber-600/30 hover:border-amber-500 text-slate-300 hover:text-amber-300 border border-slate-700 rounded text-[10px] font-medium transition flex items-center justify-center gap-1" title="Add Parent Line">
+              <i class="fa-solid fa-arrow-up text-[9px]"></i> +Parent
+            </button>
+          `}
+        </div>
+      `;
+
+      return card;
+    }
+
+    function drawConnectorLines() {
+      // Clear previous lines except defs
+      const defs = svgConnections.querySelector('defs');
+      svgConnections.innerHTML = '';
+      if(defs) svgConnections.appendChild(defs);
+
+      const viewportRect = viewport.getBoundingClientRect();
+
+      // Connect Parents to Children
+      treeData.nodes.forEach(node => {
+        if (!node.parentIds || node.parentIds.length === 0) return;
+
+        const childCard = document.getElementById(`card-${node.id}`);
+        if (!childCard) return;
+
+        const childRect = childCard.getBoundingClientRect();
+        const childX = (childRect.left + childRect.width / 2 - viewportRect.left) / zoomLevel;
+        const childY = (childRect.top - viewportRect.top) / zoomLevel;
+
+        // If child has 2 parents (married couple)
+        if (node.parentIds.length >= 2) {
+          const parent1Card = document.getElementById(`card-${node.parentIds[0]}`);
+          const parent2Card = document.getElementById(`card-${node.parentIds[1]}`);
+
+          if (parent1Card && parent2Card) {
+            const p1Rect = parent1Card.getBoundingClientRect();
+            const p2Rect = parent2Card.getBoundingClientRect();
+
+            // Calculate midpoint between father & mother cards
+            const parentX = ((p1Rect.left + p2Rect.left + p1Rect.width) / 2 - viewportRect.left) / zoomLevel;
+            const parentY = ((Math.max(p1Rect.bottom, p2Rect.bottom)) - viewportRect.top) / zoomLevel;
+
+            drawCurvedPath(parentX, parentY, childX, childY);
+            return;
+          }
+        }
+
+        // Single parent link
+        const parentCard = document.getElementById(`card-${node.parentIds[0]}`);
+        if (parentCard) {
+          const pRect = parentCard.getBoundingClientRect();
+          const parentX = (pRect.left + pRect.width / 2 - viewportRect.left) / zoomLevel;
+          const parentY = (pRect.bottom - viewportRect.top) / zoomLevel;
+
+          drawCurvedPath(parentX, parentY, childX, childY);
+        }
+      });
+    }
+
+    function drawCurvedPath(x1, y1, x2, y2) {
+      const midY = (y1 + y2) / 2;
+      const pathStr = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathStr);
+      path.setAttribute('stroke', '#64748b');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('marker-end', 'url(#arrow)');
+      path.setAttribute('stroke-dasharray', '0');
+
+      svgConnections.appendChild(path);
+    }
+
+    function addChild(parentId) {
+      const parent = treeData.nodes.find(n => n.id === parentId);
+      if (!parent) return;
+
+      // Determine parent pair if married
+      const parentIds = [parent.id];
+      if (parent.spouseId) {
+        parentIds.push(parent.spouseId);
+      }
+
+      const newChild = {
+        id: `node_${Date.now()}`,
+        name: 'New Child',
+        role: 'Child',
+        gender: 'male',
+        spouseId: null,
+        parentIds: parentIds,
+        generation: parent.generation + 1
+      };
+
+      treeData.nodes.push(newChild);
+      saveTreeState();
+      openEditModal(newChild.id);
+    }
+
+    function addSibling(nodeId) {
+      const node = treeData.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      const newSibling = {
+        id: `node_${Date.now()}`,
+        name: 'New Sibling',
+        role: 'Sibling',
+        gender: 'male',
+        spouseId: null,
+        parentIds: [...(node.parentIds || [])],
+        generation: node.generation
+      };
+
+      treeData.nodes.push(newSibling);
+      saveTreeState();
+      openEditModal(newSibling.id);
+    }
+
+    function addSpouse(nodeId) {
+      const node = treeData.nodes.find(n => n.id === nodeId);
+      if (!node || node.spouseId) return;
+
+      const newSpouse = {
+        id: `node_${Date.now()}`,
+        name: 'Spouse Name',
+        role: 'Spouse',
+        gender: node.gender === 'male' ? 'female' : 'male',
+        spouseId: node.id,
+        parentIds: [],
+        generation: node.generation
+      };
+
+      node.spouseId = newSpouse.id;
+      treeData.nodes.push(newSpouse);
+      saveTreeState();
+      openEditModal(newSpouse.id);
+    }
+
+    function addParent(childId) {
+      const child = treeData.nodes.find(n => n.id === childId);
+      if (!child) return;
+
+      // Shift generations down if adding above generation 0
+      if (child.generation === 0) {
+        treeData.nodes.forEach(n => n.generation += 1);
+      }
+
+      const newParentGen = Math.max(0, child.generation - 1);
+
+      const newParent = {
+        id: `node_${Date.now()}`,
+        name: 'New Parent',
+        role: 'Parent',
+        gender: 'male',
+        spouseId: null,
+        parentIds: [],
+        generation: newParentGen
+      };
+
+      if (!child.parentIds) child.parentIds = [];
+      child.parentIds.push(newParent.id);
+
+      treeData.nodes.push(newParent);
+      saveTreeState();
+      openEditModal(newParent.id);
+    }
+
+    function openEditModal(nodeId) {
+      const node = treeData.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      document.getElementById('edit-node-id').value = node.id;
+      document.getElementById('field-name').value = node.name || '';
+      document.getElementById('field-role').value = node.role || '';
+      document.getElementById('field-gender').value = node.gender || 'male';
+      document.getElementById('field-birth').value = node.birth || '';
+      document.getElementById('field-death').value = node.death || '';
+      document.getElementById('field-avatar').value = node.avatar || '';
+      document.getElementById('field-notes').value = node.notes || '';
+
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modalContainer.classList.remove('scale-95', 'opacity-0');
+        modalContainer.classList.add('scale-100', 'opacity-100');
+      }, 10);
+    }
+
+    function closeModal() {
+      modalContainer.classList.remove('scale-100', 'opacity-100');
+      modalContainer.classList.add('scale-95', 'opacity-0');
+      setTimeout(() => {
+        modal.classList.add('hidden');
+      }, 200);
+    }
+
+    document.getElementById('member-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const id = document.getElementById('edit-node-id').value;
+      const node = treeData.nodes.find(n => n.id === id);
+
+      if (node) {
+        node.name = document.getElementById('field-name').value;
+        node.role = document.getElementById('field-role').value;
+        node.gender = document.getElementById('field-gender').value;
+        node.birth = document.getElementById('field-birth').value;
+        node.death = document.getElementById('field-death').value;
+        node.avatar = document.getElementById('field-avatar').value;
+        node.notes = document.getElementById('field-notes').value;
+
+        saveTreeState();
+      }
+      closeModal();
+    });
+
+    document.getElementById('btn-delete-member').addEventListener('click', () => {
+      const id = document.getElementById('edit-node-id').value;
+      if (confirm('Are you sure you want to delete this family member?')) {
+        // Remove node
+        treeData.nodes = treeData.nodes.filter(n => n.id !== id);
+
+        // Remove links in other nodes
+        treeData.nodes.forEach(n => {
+          if (n.spouseId === id) n.spouseId = null;
+          if (n.parentIds) {
+            n.parentIds = n.parentIds.filter(pId => pId !== id);
+          }
+        });
+
+        saveTreeState();
+        closeModal();
+      }
+    });
+
+    document.getElementById('modal-close').addEventListener('click', closeModal);
+    document.getElementById('btn-cancel-modal').addEventListener('click', closeModal);
+
+    function updateTransform() {
+      viewport.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+      drawConnectorLines();
+    }
+
+    function centerView() {
+      zoomLevel = 1;
+      const rect = container.getBoundingClientRect();
+      panX = (rect.width - 2000) / 2;
+      panY = 40;
+      updateTransform();
+    }
+
+    container.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.member-card') || e.target.closest('button')) return;
+      isDragging = true;
+      startX = e.clientX - panX;
+      startY = e.clientY - panY;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      panX = e.clientX - startX;
+      panY = e.clientY - startY;
+      updateTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+
+    // Zoom Controls
+    document.getElementById('btn-zoom-in').addEventListener('click', () => {
+      zoomLevel = Math.min(zoomLevel + 0.15, 2);
+      updateTransform();
+    });
+
+    document.getElementById('btn-zoom-out').addEventListener('click', () => {
+      zoomLevel = Math.max(zoomLevel - 0.15, 0.4);
+      updateTransform();
+    });
+
+    document.getElementById('btn-reset-view').addEventListener('click', centerView);
+
+    // Mouse wheel zoom
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+      zoomLevel = Math.min(Math.max(zoomLevel * zoomFactor, 0.4), 2);
+      updateTransform();
+    }, { passive: false });
+
+    // Reset Tree
+    document.getElementById('btn-reset-tree').addEventListener('click', resetToJamgadeTree);
+
+    // Export JSON
+    document.getElementById('btn-export-json').addEventListener('click', () => {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(treeData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "jamgade_family_tree.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    });
+
+    // Import JSON
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const imported = JSON.parse(event.target.result);
+          if (imported && imported.nodes) {
+            treeData = imported;
+            saveTreeState();
+            centerView();
+            alert('Family tree imported successfully!');
+          }
+        } catch(err) {
+          alert('Invalid family tree JSON file.');
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    // Export Image (PNG)
+    document.getElementById('btn-export-image').addEventListener('click', () => {
+      const originalTransform = viewport.style.transform;
+      viewport.style.transform = 'none';
+
+      html2canvas(rootContainer, {
+        backgroundColor: '#0f172a',
+        scale: 2
+      }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = 'family-tree.png';
+        link.href = canvas.toDataURL();
+        link.click();
+        viewport.style.transform = originalTransform;
+      });
+    });
+
+    // Theme Toggle
+    const themeBtn = document.getElementById('btn-toggle-theme');
+    const themeIcon = document.getElementById('theme-icon');
+
+    themeBtn.addEventListener('click', () => {
+      document.body.classList.toggle('light-mode');
+      if (document.body.classList.contains('light-mode')) {
+        document.body.classList.remove('bg-slate-900', 'text-slate-100');
+        document.body.classList.add('bg-slate-100', 'text-slate-800');
+        themeIcon.className = 'fa-solid fa-moon text-indigo-400';
+      } else {
+        document.body.classList.remove('bg-slate-100', 'text-slate-800');
+        document.body.classList.add('bg-slate-900', 'text-slate-100');
+        themeIcon.className = 'fa-solid fa-sun text-amber-300';
+      }
+    });
+
+    // Window Resize listener for connector recalculation
+    window.addEventListener('resize', () => {
+      drawConnectorLines();
+    });
+
+    // Initial Launch Setup
+    window.onload = function() {
+      renderTree();
+      centerView();
+    };
+  </script>
+</body>
+</html>
